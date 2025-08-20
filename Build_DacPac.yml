@@ -1,0 +1,53 @@
+parameters:
+  - name: project
+    default: '**/Project.sqlproj'
+  - name: buildPlatform
+    default: 'Any CPU'
+  - name: buildConfiguration
+    default: 'Release'
+  - name: rootFolderOrFile
+    default: 'src\Project\bin\Release'
+  - name: archiveFile
+    default: 'dacpac.zip'
+  - name: artifactName
+    default: 'Database'
+
+jobs:
+  - job: BuildNetFramework
+    displayName: 'Build .NET Framework SQL Project'
+    pool:
+        vmImage: 'windows-latest'
+    steps:
+    - checkout: self
+
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '5.x'  # Use uma versão do SDK que seja compatível com o SQL Server Data Tools
+
+    - task: VSBuild@1
+      inputs:
+        command: 'build'
+        projects: ${{parameters.project}}
+        arguments: "--configuration Release --no-restore /p:BuildNumber=$(Build.BuildId)"
+        platform: ${{parameters.buildPlatform}}
+        configuration: ${{ parameters.buildConfiguration }}
+      continueOnError: true
+
+    - task: CopyFiles@2
+      displayName: 'Copiando artefatos da aplicação'
+      inputs:
+        SourceFolder: '$(Build.SourcesDirectory)'
+        Contents: |
+          DataBase/Project/bin/Release/**
+          DataBase/Project/bin/Release/**
+          Project/bin/Release/**
+        TargetFolder: '$(Build.ArtifactStagingDirectory)'
+   
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publicando artefatos da aplicação'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'xx'
+        publishLocation: 'Container'
+   
