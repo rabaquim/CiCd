@@ -1,0 +1,117 @@
+parameters:
+  - name: subscription
+    type: string
+    default: ''
+  - name: resourceGroup
+    type: string
+    default: ''
+  - name: cluster
+    type: string
+    default: ''
+  - name: k8sNamespace
+    type: string
+  - name: connectedServiceNameARM
+    type: string
+  - name: deployments
+    type: object
+    default: []
+
+steps:
+  - task: KubeloginInstaller@0
+    inputs:
+      kubeloginVersion: 'latest'
+
+  - task: replacetokens@5
+    inputs:
+      targetFiles: "$(Pipeline.Workspace)/**/*.yml"
+      actionOnNoFiles: "fail"
+      keepToken: false
+
+  - task: Kubernetes@1
+    displayName: "Deploy Namespace"
+    inputs:
+      connectionType: "Azure Resource Manager"
+      azureSubscriptionEndpoint: ${{ parameters.subscription }}
+      azureResourceGroup: ${{ parameters.resourceGroup }}
+      kubernetesCluster: ${{ parameters.cluster }}
+      namespace: ${{ parameters.k8sNamespace }}
+      command: "apply"
+      useConfigurationFile: true
+      configuration: "$(Pipeline.Workspace)/k8s/Environment/azure/namespace.yml"
+      secretType: "dockerRegistry"
+      containerRegistryType: "Azure Container Registry"
+      forceUpdate: true
+
+  - task: Kubernetes@1
+    displayName: "Deploy Secret"
+    inputs:
+      connectionType: "Azure Resource Manager"
+      azureSubscriptionEndpoint: ${{ parameters.subscription }}
+      azureResourceGroup: ${{ parameters.resourceGroup }}
+      kubernetesCluster: ${{ parameters.cluster }}
+      namespace: ${{ parameters.k8sNamespace }}
+      command: "apply"
+      useConfigurationFile: true
+      configuration: "$(Pipeline.Workspace)/k8s/Environment/azure/secret.yml"
+      secretType: "dockerRegistry"
+      containerRegistryType: "Azure Container Registry"
+      forceUpdate: true
+
+  - task: Kubernetes@1
+    displayName: "Deploy Configmap"
+    inputs:
+      connectionType: "Azure Resource Manager"
+      azureSubscriptionEndpoint: ${{ parameters.subscription }}
+      azureResourceGroup: ${{ parameters.resourceGroup }}
+      kubernetesCluster: ${{ parameters.cluster }}
+      namespace: ${{ parameters.k8sNamespace }}
+      command: "apply"
+      useConfigurationFile: true
+      configuration: "$(Pipeline.Workspace)/k8s/Environment/azure/configmap/configMap.yml"
+      secretType: "dockerRegistry"
+      containerRegistryType: "Azure Container Registry"
+      forceUpdate: true
+    # Configuração job condicional para cada deployment
+
+
+  - ${{ each deployment in parameters.deployments }}:
+    - ${{ if and(deployment.job.enabled, eq(deployment.job.enabled, true)) }}:
+      - task: Kubernetes@1
+        displayName: "Excluir ${{ deployment.job.arguments }}"
+        inputs:
+          connectionType: "Azure Resource Manager"
+          azureSubscriptionEndpoint: ${{ parameters.subscription }}
+          azureResourceGroup: ${{ parameters.resourceGroup }}
+          kubernetesCluster: ${{ parameters.cluster }}
+          namespace: ${{ parameters.k8sNamespace }}
+          command: "delete"
+          arguments: "job/${{ deployment.job.arguments }} --ignore-not-found"
+
+    - task: Kubernetes@1
+      displayName: "Deploy ${{ deployment.displayName }}"
+      inputs:
+        connectionType: "Azure Resource Manager"
+        azureSubscriptionEndpoint: ${{ parameters.subscription }}
+        azureResourceGroup: ${{ parameters.resourceGroup }}
+        kubernetesCluster: ${{ parameters.cluster }}
+        namespace: ${{ parameters.k8sNamespace }}
+        command: "apply"
+        arguments: "${{ deployment.arguments }}"
+        secretType: "dockerRegistry"
+        containerRegistryType: "Azure Container Registry"
+        forceUpdate: true
+
+
+    # Configuração KEDA condicional para cada deployment
+    - ${{ if and(deployment.keda.enabled, eq(deployment.keda.enabled, true)) }}:
+      - task: Kubernetes@1
+        displayName: "Deploy KEDA for ${{ deployment.displayName }}"
+        inputs:
+          connectionType: "Azure Resource Manager"
+          azureSubscriptionEndpoint: ${{ parameters.subscription }}
+          azureResourceGroup: ${{ parameters.resourceGroup }}
+          kubernetesCluster: ${{ parameters.cluster }}
+          namespace: ${{ parameters.k8sNamespace }}
+          command: "apply"
+          arguments: "${{ deployment.keda.arguments }}"
+
